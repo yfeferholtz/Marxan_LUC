@@ -1,0 +1,265 @@
+---
+title: "Optimal selection of priority areas for biological surveillance"
+author: "Carlos Zambrana-Torrelio"
+date: "1/3/2017"
+output: html_document
+---
+
+```{r Setup, download data from IUCN and Joint Research Center, include=FALSE}
+library(letsR)
+library(tidyverse)
+library(stringr)
+library(raster)
+library(cshapes)
+library(rprojroot)
+
+P <- rprojroot::find_rstudio_root_file
+# Load functions to be used
+source(P('R/gvp_function.R'))
+source(P('R/make_grid.R'))
+knitr::opts_chunk$set(echo = TRUE)
+dir.create(P('data/zip'))
+
+
+
+# Download terrestrial mammals data from AWS. Source: IUCN redlist
+if(!file.exists(P("data/zip/IUCN_MAMMALS_04_19_17.zip"))) {
+  download.file("https://s3.amazonaws.com/gvp-shapefiles/IUCN_MAMMALS_04_19_17/IUCN_MAMMALS_04_19_17.zip", destfile = P("data/zip/IUCN_MAMMALS_04_19_17.zip"))
+}
+if(file.exists(P("data/zip/IUCN_MAMMALS_04_19_17.zip")) &
+   !dir.exists(P("data/mammals_data"))) {
+  unzip(P("data/zip/IUCN_MAMMALS_04_19_17.zip"),
+        exdir=P("data/mammals_data/"))
+}
+
+# Download accesibility data from AWS. Source: http://forobs.jrc.ec.europa.eu/products/gam/
+# Check if .zip file exists in directory if not, downloads from AWS
+if(!file.exists(P("data/zip/access/access_50k.zip"))) {
+  download.file("https://s3.amazonaws.com/ehaspatial/access_50k.zip", destfile = P("data/zip/access_50k.zip"))
+}
+
+# If accessibility zip file exist, but the data is not uncompressed then unzip
+if(file.exists(P("data/zip/access_50k.zip")) &
+   !dir.exists(P("data/access"))) {
+  unzip(P("data/zip/access_50k.zip"),
+        exdir=P("data/access/"))
+}
+```
+
+## Here we create RDS files that are saved and can be used later in the marxan_files_light without having to read shapefiles again
+
+```{r Read mammals shapefile and create a presence-absence matrix at different degrees: 1, 2, 5, 10}
+
+# Read shapefile
+terr = shapefile(P("/data/mammals_data/IUCN_MAMMALS_04_19_17/TERRESTRIAL_MAMMALS.shp"), verbose = T)
+terr@data$binomial = str_replace(terr@data$binomial, " ", "_") #replace space in binomial name with an underscore
+#terr = subset(terr, PRESENCE == 1 & LEGEND != 'Extinct' | LEGEND != "Possibly Extinct" | LEGEND != 'Not Mapped')
+
+
+=======
+terr = subset(terr, binomial != 'Ursus_maritimus') #remove polar bears (much of their extent is marine)
+
+#Select only name, presence, and origin variables 
+sub_terr = terr[, c(2:4)]
+sub_terr$binomial <- as.factor(sub_terr$binomial)
+
+```
+### If we want to get presence/absence per Order rather than species we need to subset the mammal sp dataframe and then apply lets.presab
+```{r merge polygons}
+
+order = unique(terr$order_name)
+
+terr_order_2deg <- lapply(order, function(x){
+  t <- terr[terr$order_name == x,] #subset to order
+  t <- t[,c(2:4)] #choose only binomial, presence, origin columns
+  t$binomial = as.factor(t$binomial) 
+  t <- lets.presab(t, resol = 2, presence = 1, origin = 1)
+  r <- t[[2]] #get the Richness raster
+  r[r > 0] = 1 #consider all counts as presences 
+  names(r) = x # assing layer name to be the same as order name
+  return(r)
+})
+
+# We need to convert this list of rasters into a raster stack & reproject
+
+terr_order_2deg <- stack(unlist(terr_order_2deg)) 
+terr_order_2dg_eck <- projectRaster(terr_order_2deg, crs = eck_proj, method = 'ngb') #reprojection
+
+saveRDS(terr_order_2dg_eck, P('data/output/terr_order_2dg_eck.RDS'))
+
+```
+
+
+```{r reprojection}
+# Reproject Eckert IV
+eck_proj = CRS('+proj=eck4 +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs')
+
+#Create a presence-absence matrix of species' geographic ranges whithin a grid and save file as RDS
+# 10 degrees
+terr_pam_all_10dg = lets.presab(sub_terr, resol = 10, presence = 1, origin = 1)
+saveRDS(terr_pam_all_10dg, P('data/output/terr_pam_all_10dg.RDS'))
+# 5 degrees
+terr_pam_all_5dg = lets.presab(sub_terr, resol = 5, presence = 1, origin = 1)
+saveRDS(terr_pam_all_5dg, P('data/output/terr_pam_all_5dg.RDS'))
+# 2 degrees
+terr_pam_all_2dg = lets.presab(sub_terr, resol = 2, presence = 1, origin = 1)
+saveRDS(terr_pam_all_2dg, P('data/output/terr_pam_all_2dg.RDS'))
+# 1 degree
+terr_pam_all_1dg = lets.presab(sub_terr, resol = 1, presence = 1, origin = 1)
+saveRDS(terr_pam_all_1dg, P('data/output/terr_pam_all_1dg.RDS'))
+
+terr_pam_all_0.2dg = lets.presab(sub_terr, resol = 0.2, presence = 1, origin = 1)
+saveRDS(terr_pam_all_0.2dg, P('data/output/terr_pam_all_0.2dg.RDS'))
+
+
+# Projection of prescence and absence of order_name
+terr_pam_all_2dg_order = lets.presab(sub_terr_order, resol = 2, presence = 1, origin = 1)
+saveRDS(terr_pam_all_2dg_order, P('data/output/terr_pam_all_2dg_order.RDS'))
+# 1 degree
+terr_pam_all_1dg_order = lets.presab(sub_terr_order, resol = 1, presence = 1, origin = 1)
+saveRDS(terr_pam_all_1dg_order, P('data/output/terr_pam_all_1dg_order.RDS'))
+
+
+### by order ###
+terr_pam_rodentia_2dg = lets.presab(sub_rodentia, resol = 2, presence = 1, origin = 1)
+saveRDS(terr_pam_rodentia_2dg, P('data/output/terr_pam_rodentia_2dg.RDS'))
+terr_pam_rodentia_1dg = lets.presab(sub_rodentia, resol = 1, presence = 1, origin = 1)
+saveRDS(terr_pam_rodentia_1dg, P('data/output/terr_pam_rodentia_1dg.RDS'))
+
+terr_pam_2dg_chiroptera = lets.presab(sub_chiroptera, resol = 2, presence = 1, origin = 1)
+saveRDS(terr_pam_chiroptera_2dg, P('data/output/terr_pam_chiroptera_2dg.RDS'))
+
+
+crop_BGD = crop(terr_pam_all_0.2dg[[2]], BGD)
+crop_BGD2 <- projectRaster(crop_BGD, crs = projection(pu_pol_BGD))
+plot(crop_BGD2)
+plot(pu_pol_BGD, add = T)
+
+
+```
+
+```{r RasterStack with prescence/absence mammals}
+# Get shapefiles for each individual species
+#Rasterize matrix element of the lets.presab output
+#Get matrix from terr_pam_all_2dg
+terr_pam_all_mat_0.2dg = terr_pam_all_0.2dg[[1]]
+# set xy coordinates
+xy_0.2dg = terr_pam_all_mat_0.2dg[,1:2]
+# species presence absence matrix 
+presabs_0.2dg = terr_pam_all_mat_0.2dg[,-c(1:2)]
+#Rasterize each column of matrix using terr_pam_all_1dg raster as template
+terr_pam_all_ras_1dg = terr_pam_all_1dg[[2]]
+ras_0.2dg = apply(terr_pam_all_mat_0.2dg, 2, function(x) rasterize(xy_0.2dg, terr_pam_all_ras_1dg, field = x))
+#create raster stack
+terr_pam_all_0.2dg_ras = stack(unlist(ras_0.2dg))
+saveRDS(terr_pam_all_0.2dg_ras, P('data/output/terr_pam_all_0.2dg_ras.RDS'))
+
+
+
+# Get shapefiles for each order: Rodentia
+#Rasterize matrix element of the lets.presab output
+#Get matrix from terr_pam_all_2dg
+terr_pam_rodentia_mat_2dg = terr_pam_2dg_rodentia[[1]]
+# set xy coordinates
+xy_2dg_rodent = terr_pam_rodentia_mat_2dg[,1:2]
+# species presence absence matrix 
+presabs_2dg_rodent = terr_pam_rodentia_mat_2dg[,-c(1:2)]
+#Rasterize each column of matrix using terr_pam_all_1dg raster as template
+terr_pam_rodentia_ras_1dg = terr_pam_rodentia_1dg[[2]]
+ras_2dg_rodent = apply(terr_pam_rodentia_mat_2dg, 2, function(x) rasterize(xy_2dg_rodent, terr_pam_rodentia_ras_1dg, field = x))
+#create raster stack
+terr_pam_rodentia_2dg_ras = stack(unlist(ras_2dg_rodent))
+saveRDS(terr_pam_rodentia_2dg_ras, P('data/output/terr_pam_rodentia_2dg_ras.RDS'))
+
+```
+
+
+## Generate access_2dg (polygon with access costs in minutes)
+
+```{r cost, echo=FALSE}
+# Read access_50k raster
+access = raster(P('/data/access_50k/acc_50k'))
+access_2dg = raster_to_low_res_grid(access, terr_pam_all_2dg[[2]])
+saveRDS(access_2dg, P('data/output/access_2dg.RDS')) 
+
+# Read country map
+world = cshp(date=as.Date("2016-01-01"))
+
+```
+
+## We change the projection of the raster files because we want to create Planning Units (PUs) with an hexagonal form and to do that we need to define a projection in meters
+
+```{r Reprojection of files}
+# Define Coordinate Reference System arguments (CRS) (units will now be in meters)
+eck_proj = CRS('+proj=eck4 +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs')
+# Project values of old rasters into new raster with new CRS, (ngb=nearest neighbor)
+terr_pam_all_10dg_eck = projectRaster(terr_pam_all_10dg[[2]], crs = (eck_proj), method = 'ngb')
+terr_pam_all_5dg_eck = projectRaster(terr_pam_all_5dg[[2]], crs = (eck_proj), method = 'ngb')
+terr_pam_all_2dg_eck = projectRaster(terr_pam_all_2dg[[2]], crs = (eck_proj), method = 'ngb')
+terr_pam_all_1dg_eck = projectRaster(terr_pam_all_1dg[[2]], crs = (eck_proj), method = 'ngb')
+```
+
+## We load the world map so we can generate a grid of planning units in hexagons (pu_pol_hex) and a data frame of the grid (pu_pol_hex_Df)
+
+```{r Load world polygon and create hexagon grid}
+# Read and load a polygon with the world borders
+data(wrld_simpl)
+# Exclude antartica from polygon
+wrld_simpl = subset(wrld_simpl, NAME != 'Antarctica')
+# Eckert IV projection - define units in meters
+world_eckert <- CRS('+proj=eck4 +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs') %>% 
+  spTransform(wrld_simpl, .)
+
+### COSTA RICA ###
+CRI = getData(name  = "GADM", country = "CRI", level = 1)
+e = drawExtent()
+CRI = crop(CRI, e)
+CRI_eckert <- CRS('+proj=eck4 +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs') %>% 
+  spTransform(CRI, .)
+# Generate grid of polygons of 100km2 each
+pu_pol_CRI <- make_grid(CRI_eckert, type="hexagonal", cell_area = 100000000, clip = TRUE)
+#####
+
+### BANGLADESH - PU 100 Km2 ###
+BGD = getData(name  = "GADM", country = "BGD", level = 0)
+plot(BGD)
+e = drawExtent()
+BGD = crop(BGD, e)
+BGD_eckert <- CRS('+proj=eck4 +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs') %>% 
+  spTransform(BGD, .)
+# Generate grid of polygons of 100km2 each
+pu_pol_BGD <- make_grid(BGD_eckert, type="hexagonal", cell_area = 500000000, clip = TRUE)
+#####
+
+
+# Generate grid of hexagons using make_grid function with each hexagon = 50,000 km2
+pu_pol_hex <- make_grid(world_eckert, type="hexagonal" ,cell_area = 50000000000, clip = TRUE)
+saveRDS(pu_pol_hex, P('data/output/pu_pol_hex.RDS'))
+# Generate an index of the number of hexagons in pu_pol_hex
+id_hex = tibble(id_hex = c(1:5113)) # be careful with this index because it does not update to the number of hexagons generated by pu_pol_hex
+# Transform pu_pol_hex into a data frame
+pu_pol_hex_df <-  SpatialPolygonsDataFrame(pu_pol_hex, data=id_hex)
+saveRDS(pu_pol_hex_df, P('data/output/pu_pol_hex_df.RDS'))
+
+
+# Generate grid of hexagons using make_grid function with each hexagon = 100,000 km2
+pu_pol_hex_100k <- make_grid(world_eckert, type="hexagonal" ,cell_area = 100000000000, clip = TRUE)
+saveRDS(pu_pol_hex_100k, P('data/output/pu_pol_hex_100k.RDS'))
+# Generate an index of the number of hexagons in pu_pol_hex_100k
+id_hex_100k = tibble(id_hex_100k = c(1:3102)) # be careful with this index because it does not update to the number of hexagons generated by pu_pol_hex
+# Transform pu_pol_hex into a data frame
+pu_pol_hex_100k_df <-  SpatialPolygonsDataFrame(pu_pol_hex_100k, data=id_hex_100k)
+saveRDS(pu_pol_hex_100k_df, P('data/output/pu_pol_hex_100k_df.RDS'))
+
+# Generate grid of hexagons using make_grid function with each hexagon = 200,000 km2
+pu_pol_hex_200k <- make_grid(world_eckert, type="hexagonal" ,cell_area = 200000000000, clip = TRUE)
+saveRDS(pu_pol_hex_200k, P('data/output/pu_pol_hex_200k.RDS'))
+# Generate an index of the number of hexagons in pu_pol_hex_100k
+id_hex_200k = tibble(id_hex_200k = c(1:1968)) # be careful with this index because it does not update to the number of hexagons generated by pu_pol_hex
+# Transform pu_pol_hex into a data frame
+pu_pol_hex_200k_df <-  SpatialPolygonsDataFrame(pu_pol_hex_200k, data=id_hex_200k)
+saveRDS(pu_pol_hex_200k_df, P('data/output/pu_pol_hex_200k_df.RDS'))
+```
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

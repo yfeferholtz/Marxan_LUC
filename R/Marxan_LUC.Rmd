@@ -24,25 +24,50 @@ source(P('R/make_grid.R'))
 ```
 
 ## Sabah Map
+1. Generate Planning Units of 10 km2
+
 
 ```{r Sabah Map}
 library(letsR)
 Malaysia = getData(name  = "GADM", country = "MYS", level = 1)
-Sabah <- Malaysia[Malaysia@data$NAME_1==Sabah, ]
+Sabah <- Malaysia[Malaysia@data$NAME_1=="Sabah", ]
 plot(Sabah)
 # e = drawExtent()
 # Sabah = crop(Sabah, e)
 Sabah_eckert <- CRS('+proj=eck4 +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs') %>% 
   spTransform(Sabah, .)
-# Generate grid of polygons of 20000km2 each
-pu_pol_Sabah <- make_grid(Sabah_eckert, type="hexagonal", cell_area = 10000000000, clip = TRUE)
+# Generate grid of polygons of 10 km2 each
+pu_pol_Sabah <- make_grid(Sabah_eckert, type="hexagonal", cell_area = 100000000, clip = TRUE)
 plot(pu_pol_Sabah)
 
 ```
 
+2. Read in and crop the presence absence data 
 
+```{r Read in and crop the presence absence data}
+terr_pam_all_0.2dg = readRDS(P('data/output/terr_pam_all_0.2dg.RDS'))
+#terr_pam_all_0.2dg = projectRaster(terr_pam_all_0.2dg[[2]], crs = projection(pu_pol_BGD))
 
-```{r pressure, echo=FALSE}
+terr_pam_all_0.2_Sabah = crop(terr_pam_all_0.2dg[[2]], Sabah)
+terr_pam_all_0.2_Sabah <- mask(terr_pam_all_0.2_Sabah, Sabah) #this cuts it to be only the selected area
+terr_pam_all_0.2_Sabah <- projectRaster(terr_pam_all_0.2_Sabah, crs = projection(pu_pol_Sabah))  #this projects it
+terr_pam_all_0.2_Sabah <- crop(terr_pam_all_0.2_Sabah, Sabah_eckert)
+terr_pam_all_0.2_Sabah <- mask(terr_pam_all_0.2_Sabah, Sabah_eckert)
+
+library(RColorBrewer)
+
+plot(terr_pam_all_0.2_Sabah)
+plot(pu_pol_Sabah, add = T)
+```
+
+2. Generate acess raster 
+
+```{r Access, echo=FALSE}
+# Read access_50k raster
+access = raster(P('data/access/access_50k/acc_50k'))
+# # Apply function raster_to_low_res_grid
+# access_0.2dg = raster_to_low_res_grid(access, terr_pam_all_0.2dg[[2]])
+# saveRDS(access_0.2dg, P('data/output/access_0.2dg.RDS'))
 
 ```
 
