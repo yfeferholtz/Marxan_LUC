@@ -1,0 +1,49 @@
+---
+title: "marxan_LUC"
+author: "Yasha Feferholtz"
+date: "5/3/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(stringr)
+library(cshapes)
+library(rprojroot)
+library(raster)
+library(dplyr)
+library(rgeos)
+library(rasterVis)
+library(marxan)
+
+P <- rprojroot::find_rstudio_root_file
+# Load functions to be used
+source(P('R/gvp_function.R'))
+source(P('R/make_grid.R'))
+```
+
+## Sabah Map
+
+```{r Sabah Map}
+library(letsR)
+Malaysia = getData(name  = "GADM", country = "MYS", level = 1)
+Sabah <- Malaysia[Malaysia@data$NAME_1==Sabah, ]
+plot(Sabah)
+# e = drawExtent()
+# Sabah = crop(Sabah, e)
+Sabah_eckert <- CRS('+proj=eck4 +lon_0=0 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs') %>% 
+  spTransform(Sabah, .)
+# Generate grid of polygons of 20000km2 each
+pu_pol_Sabah <- make_grid(Sabah_eckert, type="hexagonal", cell_area = 10000000000, clip = TRUE)
+plot(pu_pol_Sabah)
+
+```
+
+
+
+```{r pressure, echo=FALSE}
+
+```
+
+
